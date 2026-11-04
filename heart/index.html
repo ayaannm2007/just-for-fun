@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>One Heart</title>
+<meta name="description" content="A heart written in &quot;I love you&quot; in many languages.">
+<style>
+  html,body{margin:0;height:100%;background:#050205;overflow:hidden}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+  #glow{filter:blur(10px);opacity:.6;mix-blend-mode:screen;pointer-events:none}
+  #hint{position:fixed;left:0;right:0;bottom:18px;text-align:center;font:12px system-ui,sans-serif;color:#7a3a48;opacity:0;transition:opacity 1.2s;pointer-events:none}
+  #back{position:fixed;left:14px;top:12px;font:14px system-ui,sans-serif;color:#7a3a48;text-decoration:none;z-index:5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="glow"></canvas>
+<a id="back" href="../">&larr;</a>
+<div id="hint">tap to write it again</div>
+<script>
+(() => {
+const WORDS = [
+  "I love you","Ami tomake bhalobashi","আমি তোমাকে ভালোবাসি","Je t'aime","Te amo","Ich liebe dich","Ti amo",
+  "Eu te amo","Я тебя люблю","愛してる","사랑해","我爱你","Seni seviyorum","Σ' αγαπώ","Kocham cię",
+  "Ik hou van jou","Jag älskar dig","Jeg elsker deg","Jeg elsker dig","Minä rakastan sinua","Szeretlek",
+  "Miluji tě","Te iubesc","Volim te","Обичам те","Я тебе кохаю","Mahal kita","Aku cinta kamu",
+  "Saya cintakan awak","Anh yêu em","ฉันรักเธอ","मैं तुमसे प्यार करता हूँ","میں تم سے محبت کرتا ہوں",
+  "أحبك","אני אוהב אותך","Dooset daram","Nakupenda","Ngiyakuthanda","Ndiyakuthanda","Ich hab dich lieb",
+  "Ek is lief vir jou","Mi amas vin","Te quiero","T'estimo","Maite zaitut","Tá grá agam duit","Rwy'n dy garu di",
+  "Ég elska þig","Ma armastan sind","Es tevi mīlu","Aš tave myliu","Ljubim te","Volim te",
+  "Nan unna kadhalikiren","நான் உன்னை காதலிக்கிறேன்","నేను నిన్ను ప్రేమిస్తున్నాను","ನಾನು ನಿನ್ನನ್ನು ಪ್ರೀತಿಸುತ್ತೇನೆ",
+  "Main tumse pyar karta hoon","Mama oyata adarei","Ngo oi ney","Wo ai ni","Saranghae",
+  "Aishiteru","Kimi o ai shiteru","Ua here au ia oe","Aloha wau iā ʻoe","Mi ta stimabo",
+  "Би чамд хайртай","Ես քեզ սիրում եմ","Mən səni sevirəm",
+  "Men seni yaxshi ko'raman","Мен сени сүйөм","Seni seviyorum","Tôi yêu bạn","Kh'nhom srolanh nhek",
+  "Chit pa de","Ndakuda","Nalikupenda","Ina son ki","Mo nifẹ rẹ","A hụrụ m gị n'anya","Ninakupenda",
+  "Te dua","Те сакам","Ljubim te","Ti voglio bene","Querote","Je t'adore"
+];
+const STAR = ["I love you","আমি তোমাকে ভালোবাসি","Je t'aime","Te amo","愛してる","사랑해"];
+
+const cv = document.getElementById('c'), gl = document.getElementById('glow');
+const ctx = cv.getContext('2d'), gctx = gl.getContext('2d');
+const hint = document.getElementById('hint');
+const FONT = 'system-ui,-apple-system,"Segoe UI","Noto Sans","Noto Sans Bengali","Nirmala UI",sans-serif';
+
+let W, H, DPR, items = [], start = 0, scale = 1, cx = 0, cy = 0;
+
+// classic heart curve as a polygon, normalized so it spans about x:[-1,1], y:[-1,1] (y up)
+const POLY = [];
+for (let i = 0; i < 360; i++) {
+  const a = i / 360 * Math.PI * 2;
+  const x = 16 * Math.sin(a) ** 3;
+  const y = 13*Math.cos(a) - 5*Math.cos(2*a) - 2*Math.cos(3*a) - Math.cos(4*a);
+  POLY.push([x / 16, (y + 2.5) / 14.5]);
+}
+const inHeart = (x, y) => {
+  let inside = false;
+  for (let i = 0, j = POLY.length - 1; i < POLY.length; j = i++) {
+    const [xi, yi] = POLY[i], [xj, yj] = POLY[j];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+const toWorld = (sx, sy) => [(sx - cx) / scale, -(sy - cy) / scale];
+
+function layout(keepTime){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  for (const c of [cv, gl]) { c.width = W*DPR; c.height = H*DPR; }
+  for (const k of [ctx, gctx]) k.setTransform(DPR,0,0,DPR,0,0);
+  scale = Math.min(W / 2.25, H / 2.35);
+  cx = W / 2; cy = H / 2;
+
+  const base = Math.max(7.5, scale / 25);
+  const lineH = base * 1.35;
+  items = [];
+  let wi = Math.floor(Math.random() * WORDS.length);
+  const top = cy - scale * 0.95, bottom = cy + scale * 1.02;
+  for (let y = top; y < bottom; y += lineH) {
+    let x = cx - scale * 1.05;
+    const rowEnd = cx + scale * 1.05;
+    while (x < rowEnd) {
+      const big = Math.random() < 0.12;
+      const size = base * (big ? 1.18 : 0.78 + Math.random()*0.22);
+      const word = WORDS[wi % WORDS.length];
+      ctx.font = `${big ? 700 : 600} ${size}px ${FONT}`;
+      const w = ctx.measureText(word).width;
+      const ok = [0, 0.25, 0.5, 0.75, 1].every(f => {
+        const [hx, hy] = toWorld(x + w*f, y);
+        const [hx2, hy2] = toWorld(x + w*f, y - size*0.7);
+        return inHeart(hx, hy) && inHeart(hx2, hy2);
+      });
+      if (ok) {
+        items.push({word, x, y, size, w, weight: big ? 700 : 600, row: y});
+        wi++;
+        x += w + size * 0.55;
+      } else {
+        x += size * 0.5;
+      }
+    }
+    // centre the row inside the heart
+    const row = items.filter(o => o.row === y);
+    if (row.length) {
+      const first = row[0].x, last = row[row.length-1].x + row[row.length-1].w;
+      const shift = ((2*cx - first) - last) / 2;
+      const fits = row.every(o => [0, 0.5, 1].every(f => { const [hx, hy] = toWorld(o.x + shift + o.w*f, y); return inHeart(hx, hy); }));
+      if (fits) row.forEach(o => o.x += shift);
+    }
+  }
+  // a few highlighted ones in the middle get the "I love you" treatment
+  const mids = items.filter(it => Math.abs(it.x + it.w/2 - cx) < scale*0.45 && Math.abs(it.y - cy) < scale*0.4);
+  for (let i = 0; i < 4 && mids.length; i++) {
+    const it = mids.splice(Math.floor(Math.random()*mids.length), 1)[0];
+    ctx.font = `700 ${it.size}px ${FONT}`;
+    const word = STAR[i % STAR.length], w = ctx.measureText(word).width;
+    if (w > it.w + it.size * 0.3) { i--; continue; }
+    it.star = true; it.word = word; it.w = w; it.weight = 700;
+  }
+  // drawing order: outline first, going round the heart, then fill from the edges inward
+  for (const it of items) {
+    const [hx, hy] = toWorld(it.x + it.w/2, it.y - it.size*0.35);
+    let ang = Math.atan2(hx, hy - 0.1);          // 0 at the top centre, clockwise
+    if (ang < 0) ang += Math.PI * 2;
+    const inRow = items.filter(o => o.row === it.row);
+    it.edge = inRow[0] === it || inRow[inRow.length - 1] === it || !inHeart(hx * 1.12, (hy - 0.1) * 1.12 + 0.1);
+    const depth = Math.hypot(hx, hy - 0.1);
+    it.order = it.edge ? ang / (Math.PI*2) : 2 - depth + Math.random() * 0.25;
+  }
+  items.sort((a, b) => a.order - b.order);
+  const n = items.length, nEdge = items.filter(i => i.edge).length;
+  items.forEach((it, i) => {
+    it.t = i < nEdge ? 0.6 + (i / nEdge) * 3.6 : 4.4 + ((i - nEdge) / Math.max(1, n - nEdge)) * 3.4;
+    it.hue = 350 + Math.random() * 14 - 7;
+    it.light = 52 + Math.random() * 14;
+  });
+  if (!keepTime) start = performance.now() / 1000;
+}
+
+function restart(){ layout(); hint.style.opacity = 0; }
+let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => layout(true), 150); });
+addEventListener('pointerdown', restart);
+layout();
+
+function frame(){
+  const t = performance.now() / 1000 - start;
+  ctx.fillStyle = '#050205'; ctx.fillRect(0, 0, W, H);
+  // heartbeat once complete
+  const done = t > 8.2;
+  const beatT = (t - 8.2) % 1.1;
+  const beat = done ? 1 + 0.035*Math.exp(-beatT*9) * Math.sin(beatT*20) + 0.025*Math.exp(-Math.max(0,beatT-0.22)*9)*(beatT>0.22?Math.sin((beatT-0.22)*20):0) : 1;
+  ctx.save();
+  ctx.translate(cx, cy); ctx.scale(beat, beat); ctx.translate(-cx, -cy);
+  ctx.textBaseline = 'alphabetic';
+  for (const it of items) {
+    const a = t - it.t;
+    if (a <= 0) continue;
+    const p = Math.min(1, a / 0.35);
+    // typed reveal: show characters progressively
+    const chars = [...it.word];
+    const shown = chars.slice(0, Math.max(1, Math.ceil(chars.length * Math.min(1, a / 0.3)))).join('');
+    const flash = Math.max(0, 1 - a / 0.6);
+    const L = it.star ? 88 : it.light + flash * 30;
+    ctx.globalAlpha = p;
+    ctx.font = `${it.weight} ${it.size}px ${FONT}`;
+    ctx.fillStyle = it.star ? `hsl(350,100%,${L}%)` : `hsl(${it.hue},95%,${L}%)`;
+    ctx.fillText(shown, it.x, it.y);
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  gctx.clearRect(0, 0, W, H);
+  gctx.drawImage(cv, 0, 0, W, H);
+  if (t > 9.5) hint.style.opacity = 0.9;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

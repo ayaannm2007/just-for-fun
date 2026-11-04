@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>The Connection</title>
+<meta name="description" content="Two eyes made entirely of characters. Look closer.">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none}
+  canvas{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+  #glow{filter:blur(7px) saturate(1.4);opacity:.75;mix-blend-mode:screen;pointer-events:none}
+  #title{position:fixed;left:0;right:0;top:18px;text-align:center;font:500 13px/1 ui-monospace,Menlo,Consolas,monospace;
+    letter-spacing:.5em;color:#f7c6dc;opacity:0;transition:opacity 1.5s;pointer-events:none;text-transform:uppercase}
+  #hint{position:fixed;left:0;right:0;bottom:18px;text-align:center;font:12px ui-monospace,Menlo,Consolas,monospace;
+    color:#8a6b7c;opacity:.0;transition:opacity 1.5s;pointer-events:none}
+  #back{position:fixed;left:14px;top:12px;font:13px ui-monospace,Menlo,Consolas,monospace;color:#8a6b7c;text-decoration:none;z-index:5}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="glow"></canvas>
+<a id="back" href="../">&larr;</a>
+<div id="title">The Connection</div>
+<div id="hint">move your finger &middot; they're watching</div>
+<script>
+(() => {
+const cv = document.getElementById('c'), gl = document.getElementById('glow');
+const ctx = cv.getContext('2d'), gctx = gl.getContext('2d');
+const title = document.getElementById('title'), hint = document.getElementById('hint');
+
+const RAMP = " .`':-,;~=+*!icvxzunoaeqpdbkhLCJUYXZO0QmwM#%&@";
+let W, H, DPR, fs, cw, ch, cols, rows;
+
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  for (const c of [cv, gl]) { c.width = W*DPR; c.height = H*DPR; }
+  fs = Math.max(7, Math.min(12, Math.round(Math.min(W, H) / 62)));
+  cw = fs * 0.62; ch = fs * 1.0;
+  cols = Math.ceil(W / cw); rows = Math.ceil(H / ch);
+  for (const k of [ctx, gctx]) k.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize', resize); resize();
+
+// ---------- noise ----------
+function hash(x, y){ let h = Math.sin(x*127.1 + y*311.7) * 43758.5453; return h - Math.floor(h); }
+function noise(x, y){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x-ix, fy = y-iy;
+  const ux = fx*fx*(3-2*fx), uy = fy*fy*(3-2*fy);
+  const a = hash(ix,iy), b = hash(ix+1,iy), c = hash(ix,iy+1), d = hash(ix+1,iy+1);
+  return a + (b-a)*ux + (c-a)*uy + (a-b-c+d)*ux*uy;
+}
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const smooth = (a,b,v) => { const t = clamp((v-a)/(b-a),0,1); return t*t*(3-2*t); };
+const lerp = (a,b,t) => a+(b-a)*t;
+
+// ---------- pointer ----------
+let px = 0, py = 0, lastMove = -99;
+function onMove(e){
+  const p = e.touches ? e.touches[0] : e;
+  px = (p.clientX / W) * 2 - 1; py = (p.clientY / H) * 2 - 1; lastMove = performance.now()/1000;
+}
+addEventListener('mousemove', onMove); addEventListener('touchmove', onMove, {passive:true});
+addEventListener('touchstart', onMove, {passive:true});
+
+// ---------- the face ----------
+const EX = 0.5, EW = 0.42, EH = 0.24;
+
+function eye(x, y, ex, s){
+  const dx = x - ex, dy = y, u = dx / EW;
+  const au = Math.abs(u);
+  // brow
+  let brow = 0;
+  const by = -0.36 + 0.13*u*u - (ex<0? -0.02*u : 0.02*u);
+  if (au < 1.15) {
+    const d = Math.abs(dy - by);
+    const th = 0.045 * (1 - 0.6*au);
+    if (d < th) brow = (0.4 + 0.25*Math.sin(dx*140 + dy*40)) * (1 - d/th);
+  }
+  if (au >= 1) return {inside:false, socket: Math.hypot(dx/(EW*1.3), dy/(EH*1.9)), brow};
+  const hh = EH * Math.pow(1 - u*u, 0.85);
+  const open = s.open;
+  const bot = hh * (0.25 + 0.6*open);
+  const top = -hh*open + (1-open)*hh*0.22;
+  const socket = Math.hypot(dx/(EW*1.3), dy/(EH*1.9));
+  if (dy < top || dy > bot) {
+    // lashes above the upper lid
+    let lash = 0;
+    const above = top - dy;
+    if (above > 0 && above < 0.05*(1-au*0.7)) {
+      const k = Math.sin(u*55 + above*60*(u)) ;
+      if (k > 0.55) lash = 1;
+    }
+    // eyeliner just under the bottom lid
+    const below = dy - bot;
+    return {inside:false, socket, brow, lash, lid: above < 0.012 && above > 0 ? 1 : (below > 0 && below < 0.008 ? 0.5 : 0)};
+  }
+  // inside the eye: sclera, iris, pupil
+  const icx = ex + s.gx*0.14, icy = s.gy*0.07;
+  const ix = x - icx, iy = y - icy, d = Math.hypot(ix, iy);
+  const ri = 0.155, rp = 0.05 * s.dil;
+  let v;
+  if (d < rp) {
+    v = 0.0;
+  } else if (d < ri) {
+    const a = Math.atan2(iy, ix);
+    const fib = 0.5 + 0.5*Math.sin(a*26 + noise(a*4+ex*10, d*30)*5);
+    const t = (d - rp) / (ri - rp);
+    v = 0.3 + 0.55*fib*(0.6+0.4*Math.sin(t*3.1));
+    v *= 1 - smooth(0.75, 1, t)*0.75;           // dark limbal ring
+    v += smooth(0.0, 0.15, t) * 0 ;
+  } else {
+    v = 1.0 - 0.2*noise(x*20, y*20);
+    v *= 0.55 + 0.45*smooth(0, 0.05, Math.min(dy - top, bot - dy)); // lid shadow
+    v *= 0.82 + 0.18*(1 - au);
+  }
+  // highlight
+  const hx = ix + 0.045, hy = iy + 0.045;
+  if (hx*hx + hy*hy < 0.024*0.024) v = 1;
+  // upper lid shadow line
+  if (dy - top < 0.012) v *= 0.15;
+  return {inside:true, v};
+}
+
+function face(x, y, s){
+  // skin
+  let v = 0.16 + 0.12*noise(x*5+3, y*5) + 0.06*noise(x*28, y*28);
+  // nose bridge highlight & falloff
+  v += 0.07 * Math.exp(-x*x*40) * smooth(-0.3, 0.2, y);
+  const L = eye(x, y, -EX, s), R = eye(x, y, EX, s);
+  for (const e of [L, R]) if (e.inside) return e.v;
+  const sock = Math.min(L.socket, R.socket);
+  v *= 0.25 + 0.75*smooth(0.8, 1.6, sock);
+  for (const e of [L, R]) {
+    if (e.brow) v = Math.max(v, e.brow);
+    if (e.lash) v = 0.02;
+    if (e.lid) v *= 0.1;
+  }
+  // vignette
+  v *= 1 - smooth(0.85, 1.75, Math.hypot(x/1.25, y*1.05));
+  return v;
+}
+
+// ---------- inner space (inside the pupil) ----------
+function space(nx, ny, t, cellHash){
+  // nx, ny ~ [-1,1] adjusted for aspect
+  let v = 0;
+  if (cellHash > 0.985) v = 0.25 + 0.35*Math.max(0, Math.sin(t*3 + cellHash*500));
+  const k = smooth(0, 3.2, t);              // approach progress
+  const sep = lerp(0.95, 0.0, k*k*(3-2*k));
+  const r = 0.33;
+  for (const sgn of [-1, 1]) {
+    const ox = nx - sgn*sep, oy = ny + Math.sin(t*1.3 + sgn)*0.04*(1-k);
+    const d2 = ox*ox + oy*oy;
+    if (d2 < r*r) {
+      const z = Math.sqrt(1 - d2/(r*r));
+      const lam = clamp(0.4 + 0.85*(z*0.7 + (-ox*sgn*0.3 - oy*0.4)/r), 0, 1);
+      const swirl = 0.75 + 0.25*Math.sin(Math.atan2(oy,ox)*6 + t*2*sgn + d2*40);
+      v = Math.max(v, lam*swirl*0.95);
+    } else {
+      const d = Math.sqrt(d2);
+      v = Math.max(v, 0.22*Math.exp(-(d - r)*9));   // halo
+    }
+  }
+  // the moment they touch
+  const flash = smooth(3.0, 3.5, t) * (1 - smooth(3.5, 4.4, t));
+  return clamp(Math.max(v, flash*(0.85 + 0.15*cellHash)), 0, 1);
+}
+
+// ---------- timeline ----------
+const LOOP = 26;
+function bump(t, c, w){ const d = Math.abs(t - c); return d < w ? Math.cos(d/w*Math.PI/2)**2 : 0; }
+
+function state(t, now){
+  const s = {};
+  // blinking
+  let open = 1 - Math.max(bump(t, 3.8, 0.16), bump(t, 6.6, 0.14), bump(t, 7.0, 0.12), bump(t, 21.0, 0.16));
+  open = Math.min(open, smooth(0.6, 2.2, t));
+  open = Math.min(open, 1 - smooth(23.4, 25, t));
+  s.open = open;
+  // gaze
+  let gx = Math.sin(t*0.9)*0.7 + Math.sin(t*2.3)*0.2, gy = Math.sin(t*0.6+1)*0.6;
+  if (now - lastMove < 2.5) { gx = clamp(px*1.3, -1, 1); gy = clamp(py*1.3, -1, 1); }
+  const lock = smooth(7.6, 8.4, t) * (1 - smooth(19.5, 20.5, t));
+  s.gx = lerp(gx, 0, lock); s.gy = lerp(gy, 0, lock);
+  // pupil dilation
+  s.dil = 1 + 0.9*smooth(8, 11, t) * (1 - smooth(18, 20, t));
+  // camera
+  let z = 1;
+  if (t > 8 && t < 12) z = Math.exp(Math.pow(smooth(8, 12, t), 1.6) * Math.log(90));
+  else if (t >= 12 && t < 17.5) z = 90;
+  else if (t >= 17.5 && t < 21) z = Math.exp((1 - smooth(17.5, 21, t)) * Math.log(90));
+  s.zoom = z;
+  s.space = smooth(11.4, 12.2, t) * (1 - smooth(16.6, 17.6, t));
+  s.spaceT = t - 12.2;
+  s.fade = smooth(0, 1.5, t) * (1 - smooth(25.2, 26, t));
+  return s;
+}
+
+// ---------- render ----------
+const LEVELS = 14;
+const colorOf = i => {
+  const v = i / (LEVELS - 1);
+  const r = Math.round(lerp(70, 255, Math.pow(v, 0.7)));
+  const g = Math.round(lerp(55, 222, v*v));
+  const b = Math.round(lerp(120, 236, Math.pow(v, 0.9)));
+  return `rgb(${r},${g},${b})`;
+};
+const COLORS = Array.from({length: LEVELS}, (_, i) => colorOf(i));
+const buckets = Array.from({length: LEVELS}, () => []);
+
+const t0 = performance.now()/1000;
+let shownTitle = false;
+function frame(){
+  const now = performance.now()/1000;
+  const t = (now - t0) % LOOP;
+  const s = state(t, now);
+  const flick = Math.floor(now * 9);
+
+  // world mapping: fit the two eyes
+  const unitsPerPx = Math.max((W < H ? 2.15 : 2.6) / W, 1.5 / H) / s.zoom;
+  // zoom target: centre of the left pupil
+  const zt = smooth(8, 11, t) * (1 - smooth(18, 21, t));
+  const camX = lerp(0, -EX + s.gx*0.14, Math.min(1, zt)), camY = lerp(0.02, s.gy*0.07, Math.min(1, zt));
+  const aspect = W / H;
+
+  for (const b of buckets) b.length = 0;
+  for (let r = 0; r < rows; r++) {
+    const sy = (r + 0.5) * ch;
+    for (let c = 0; c < cols; c++) {
+      const sx = (c + 0.5) * cw;
+      const x = camX + (sx - W/2) * unitsPerPx;
+      const y = camY + (sy - H/2) * unitsPerPx;
+      const hsh = hash(c*1.7 + 0.3, r*2.9 + 0.7);
+      let v = s.space < 1 ? face(x, y, s) : 0;
+      if (s.space > 0) {
+        const nx = ((sx / W) * 2 - 1) * Math.max(1, aspect);
+        const ny = ((sy / H) * 2 - 1) * Math.max(1, 1/aspect);
+        v = lerp(v, space(nx, ny, s.spaceT, hsh), s.space);
+      }
+      v *= s.fade;
+      v += (hsh - 0.5) * 0.05;           // film grain
+      if (v < 0.06) continue;
+      v = Math.min(1, v);
+      let ci = Math.floor(v * (RAMP.length - 1));
+      // shimmer: occasionally swap to a neighbour character
+      if (hash(c + flick*0.13, r) > 0.9) ci = clamp(ci + (hash(r, c + flick) > 0.5 ? 1 : -1), 1, RAMP.length - 1);
+      const lvl = Math.min(LEVELS - 1, Math.floor(v * LEVELS));
+      buckets[lvl].push(sx, sy, ci);
+    }
+  }
+
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.font = `${fs}px ui-monospace, Menlo, Consolas, "Courier New", monospace`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (let l = 0; l < LEVELS; l++) {
+    const b = buckets[l]; if (!b.length) continue;
+    ctx.fillStyle = COLORS[l];
+    for (let i = 0; i < b.length; i += 3) ctx.fillText(RAMP[b[i+2]], b[i], b[i+1]);
+  }
+  gctx.clearRect(0, 0, W, H);
+  gctx.drawImage(cv, 0, 0, W, H);
+
+  const showTitle = t > 1.2 && t < 7.5;
+  title.style.opacity = showTitle ? 0.85 : 0;
+  hint.style.opacity = (t > 2.5 && t < 7.5) ? 0.8 : 0;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
