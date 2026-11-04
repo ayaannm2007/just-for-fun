@@ -75,6 +75,14 @@ function layout(keepTime){
   const base = Math.max(7.5, scale / 25);
   const lineH = base * 1.35;
   items = [];
+  // the special one, reserved in the very centre of the heart
+  const CENTER_WORD = "kogo ah kheoiteh";
+  const cSize = base * 2.1;
+  ctx.font = `800 ${cSize}px ${FONT}`;
+  const cW = ctx.measureText(CENTER_WORD).width;
+  const cY = cy - scale * 0.1 + cSize * 0.35;          // baseline
+  const box = {l: cx - cW/2 - base*0.6, r: cx + cW/2 + base*0.6, t: cY - cSize*0.95 - base*0.3, b: cY + cSize*0.3 + base*0.3};
+  const hitsBox = (x, w, y, size) => x < box.r && x + w > box.l && y > box.t && y - size*0.8 < box.b;
   let wi = Math.floor(Math.random() * WORDS.length);
   const top = cy - scale * 0.95, bottom = cy + scale * 1.02;
   for (let y = top; y < bottom; y += lineH) {
@@ -91,7 +99,7 @@ function layout(keepTime){
         const [hx2, hy2] = toWorld(x + w*f, y - size*0.7);
         return inHeart(hx, hy) && inHeart(hx2, hy2);
       });
-      if (ok) {
+      if (ok && !hitsBox(x, w, y, size)) {
         items.push({word, x, y, size, w, weight: big ? 700 : 600, row: y});
         wi++;
         x += w + size * 0.55;
@@ -104,7 +112,7 @@ function layout(keepTime){
     if (row.length) {
       const first = row[0].x, last = row[row.length-1].x + row[row.length-1].w;
       const shift = ((2*cx - first) - last) / 2;
-      const fits = row.every(o => [0, 0.5, 1].every(f => { const [hx, hy] = toWorld(o.x + shift + o.w*f, y); return inHeart(hx, hy); }));
+      const fits = row.every(o => !hitsBox(o.x + shift, o.w, y, o.size) && [0, 0.5, 1].every(f => { const [hx, hy] = toWorld(o.x + shift + o.w*f, y); return inHeart(hx, hy); }));
       if (fits) row.forEach(o => o.x += shift);
     }
   }
@@ -114,7 +122,7 @@ function layout(keepTime){
     const it = mids.splice(Math.floor(Math.random()*mids.length), 1)[0];
     ctx.font = `700 ${it.size}px ${FONT}`;
     const word = STAR[i % STAR.length], w = ctx.measureText(word).width;
-    if (w > it.w + it.size * 0.3) { i--; continue; }
+    if (w > it.w + it.size * 0.3 || hitsBox(it.x, w, it.y, it.size)) { i--; continue; }
     it.star = true; it.word = word; it.w = w; it.weight = 700;
   }
   // drawing order: outline first, going round the heart, then fill from the edges inward
@@ -134,6 +142,7 @@ function layout(keepTime){
     it.hue = 350 + Math.random() * 14 - 7;
     it.light = 52 + Math.random() * 14;
   });
+  items.push({word: CENTER_WORD, x: cx - cW/2, y: cY, size: cSize, w: cW, weight: 800, center: true, t: 8.0});
   if (!keepTime) start = performance.now() / 1000;
 }
 
@@ -146,8 +155,8 @@ function frame(){
   const t = performance.now() / 1000 - start;
   ctx.fillStyle = '#050205'; ctx.fillRect(0, 0, W, H);
   // heartbeat once complete
-  const done = t > 8.2;
-  const beatT = (t - 8.2) % 1.1;
+  const done = t > 9.6;
+  const beatT = (t - 9.6) % 1.1;
   const beat = done ? 1 + 0.035*Math.exp(-beatT*9) * Math.sin(beatT*20) + 0.025*Math.exp(-Math.max(0,beatT-0.22)*9)*(beatT>0.22?Math.sin((beatT-0.22)*20):0) : 1;
   ctx.save();
   ctx.translate(cx, cy); ctx.scale(beat, beat); ctx.translate(-cx, -cy);
@@ -158,7 +167,17 @@ function frame(){
     const p = Math.min(1, a / 0.35);
     // typed reveal: show characters progressively
     const chars = [...it.word];
-    const shown = chars.slice(0, Math.max(1, Math.ceil(chars.length * Math.min(1, a / 0.3)))).join('');
+    const typeDur = it.center ? 1.4 : 0.3;
+    const shown = chars.slice(0, Math.max(1, Math.ceil(chars.length * Math.min(1, a / typeDur)))).join('');
+    if (it.center) {
+      ctx.globalAlpha = 1;
+      ctx.font = `${it.weight} ${it.size}px ${FONT}`;
+      ctx.shadowColor = 'rgba(255,60,110,0.95)'; ctx.shadowBlur = it.size * (0.6 + 0.25*Math.sin(t*3));
+      ctx.fillStyle = '#ffe6ee';
+      ctx.fillText(shown, it.x, it.y);
+      ctx.shadowBlur = 0;
+      continue;
+    }
     const flash = Math.max(0, 1 - a / 0.6);
     const L = it.star ? 88 : it.light + flash * 30;
     ctx.globalAlpha = p;
@@ -170,7 +189,7 @@ function frame(){
   ctx.globalAlpha = 1;
   gctx.clearRect(0, 0, W, H);
   gctx.drawImage(cv, 0, 0, W, H);
-  if (t > 9.5) hint.style.opacity = 0.9;
+  if (t > 11) hint.style.opacity = 0.9;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
