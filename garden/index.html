@@ -80,9 +80,27 @@ function skyAt(p){
 }
 
 // ---------- scenery ----------
-let stars = [], hills = [], grass = [];
+let stars = [], hills = [], grass = [], milky = [], meteors = [], nextMeteor = 3;
 function makeScenery(){
-  stars = Array.from({length: Math.round(W * H / 5000)}, () => ({x: rand(0, W), y: rand(0, groundTop * 0.95), r: rand(0.4, 1.4), ph: rand(0, TAU), sp: rand(0.5, 2)}));
+  const star = (x, y, big) => ({x, y, big, r: big ? rand(1.3, 2) : rand(0.5, 1.3) * (Math.random() < 0.15 ? 1.5 : 1),
+    h: [220, 210, 45, 0, 200][Math.floor(Math.random() * 5)], ph: rand(0, TAU), sp: rand(0.6, 2.6),
+    fade: 1 - smooth(groundTop * 0.45, groundTop, y) * 0.75});
+  stars = [];
+  const ns = Math.round(W * groundTop / 2200);
+  for (let i = 0; i < ns; i++) stars.push(star(rand(0, W), rand(0, groundTop * 0.97), Math.random() < 0.07));
+  // a milky-way band running across the sky
+  const mx0 = 0, my0 = groundTop * 0.75, mx1 = W, my1 = groundTop * 0.08;
+  milky = [];
+  for (let i = 0; i < ns * 0.8; i++) {
+    const k = Math.random(), off = (Math.random() + Math.random() + Math.random() - 1.5) * U * 0.09;
+    const x = lerp(mx0, mx1, k), y = lerp(my0, my1, k);
+    const len = Math.hypot(mx1 - mx0, my1 - my0), nx = -(my1 - my0) / len, ny = (mx1 - mx0) / len;
+    stars.push(Object.assign(star(x + nx * off, y + ny * off, false), {r: rand(0.35, 0.9)}));
+  }
+  for (let i = 0; i < 14; i++) {
+    const k = i / 13 + rand(-0.03, 0.03);
+    milky.push({x: lerp(mx0, mx1, k), y: lerp(my0, my1, k) + rand(-1, 1) * U * 0.03, r: U * rand(0.12, 0.2), h: [230, 260, 290, 200][i % 4]});
+  }
   hills = [0, 1].map(k => ({k, a: Array.from({length: 4}, () => [rand(0.002, 0.012), rand(0, TAU), rand(8, 26)])}));
   grass = [];
   const n = Math.round(W / 3.2);
@@ -294,6 +312,18 @@ function update(dt, t, wind, dark){
   }
   parts = parts.filter(p => p.age < p.life && p.x > -50 && p.x < W + 50);
 
+  // shooting stars, only when it's properly dark
+  for (const m of meteors) m.age += dt;
+  meteors = meteors.filter(m => m.age < m.life);
+  if (dark > 0.75) {
+    nextMeteor -= dt;
+    if (nextMeteor < 0) {
+      const dir = Math.random() < 0.5 ? -1 : 1, sp = U * rand(1.1, 1.7);
+      meteors.push({x: rand(0.15, 0.85) * W, y: rand(0.03, 0.3) * groundTop, vx: dir * sp * 0.82, vy: sp * 0.57, age: 0, life: rand(0.6, 1.0)});
+      nextMeteor = rand(3, 8);
+    }
+  }
+
   // fireflies
   for (const f of fireflies) {
     f.ph += dt * f.sp;
@@ -317,11 +347,32 @@ function drawSky(sky, p, t){
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 
   ctx.globalCompositeOperation = 'lighter';
-  if (sky.dark > 0.05) {
-    ctx.fillStyle = '#fff';
+  const sd = smooth(0.25, 0.9, sky.dark);          // stars come out as it gets dark
+  if (sd > 0.01) {
+    // milky way haze
+    for (const m of milky) drawGlow(m.x, m.y, m.r, m.h, 0.07 * sd, 70, 70);
     for (const s of stars) {
-      ctx.globalAlpha = sky.dark * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * s.sp + s.ph)));
-      ctx.fillRect(s.x, s.y, s.r, s.r);
+      const tw = 0.5 + 0.5 * Math.sin(t * s.sp + s.ph);
+      const a = sd * s.fade * (0.45 + 0.55 * tw);
+      if (s.big) {
+        drawGlow(s.x, s.y, s.r * 7, s.h, a * 0.8, 60, 80);
+        ctx.globalAlpha = a * 0.9; ctx.strokeStyle = `hsl(${s.h},60%,90%)`; ctx.lineWidth = 0.8;
+        const L = s.r * (4 + 4 * tw);
+        ctx.beginPath(); ctx.moveTo(s.x - L, s.y); ctx.lineTo(s.x + L, s.y); ctx.moveTo(s.x, s.y - L); ctx.lineTo(s.x, s.y + L); ctx.stroke();
+      }
+      ctx.globalAlpha = a; ctx.fillStyle = `hsl(${s.h},50%,92%)`;
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r * (0.8 + 0.3 * tw), 0, TAU); ctx.fill();
+    }
+    // shooting stars
+    for (const m of meteors) {
+      const k = m.age / m.life, a = Math.sin(k * Math.PI) * sd;
+      const hx = m.x + m.vx * m.age, hy = m.y + m.vy * m.age;
+      const tx = hx - m.vx * 0.22, ty = hy - m.vy * 0.22;
+      const g2 = ctx.createLinearGradient(hx, hy, tx, ty);
+      g2.addColorStop(0, `rgba(255,255,255,${a})`); g2.addColorStop(1, 'rgba(160,190,255,0)');
+      ctx.globalAlpha = 1; ctx.strokeStyle = g2; ctx.lineWidth = 2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(tx, ty); ctx.stroke();
+      drawGlow(hx, hy, 12, 220, a, 80, 85);
     }
   }
   // moon across the night, sun across the day
