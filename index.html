@@ -11,13 +11,14 @@
   body{margin:0;min-height:100vh;background:#060306;color:#eadde3;font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;
     display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px}
   h1{font:600 14px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.45em;text-transform:uppercase;color:#b88aa0;margin:0 0 28px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;width:100%;max-width:640px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;width:100%;max-width:960px}
   a.card{display:block;text-decoration:none;color:inherit;border:1px solid #2a1822;border-radius:14px;padding:22px;background:#0d070b;
     transition:transform .2s,border-color .2s}
   a.card:hover{transform:translateY(-3px);border-color:#5a2a3e}
   .art{height:120px;display:flex;align-items:center;justify-content:center;margin-bottom:14px;overflow:hidden}
   .eyes{font:11px/1 ui-monospace,Menlo,Consolas,monospace;color:#e9b6d0;white-space:pre;text-shadow:0 0 8px #c06a96}
   .heart{font-size:84px;color:#ff2d55;text-shadow:0 0 24px #ff2d55aa}
+  .garden{font-size:44px;filter:drop-shadow(0 0 12px #b46cff) drop-shadow(0 0 22px #ff6cc8)}
   h2{margin:0 0 4px;font-size:18px}
   p{margin:0;color:#9a8790;font-size:14px}
   footer{margin-top:32px;font-size:12px;color:#5d4a53}
@@ -37,6 +38,11 @@
     <div class="art"><div class="heart">&#10084;</div></div>
     <h2>One Heart</h2>
     <p>"I love you" in 80+ languages, written into one heart.</p>
+  </a>
+  <a class="card" href="garden/">
+    <div class="art"><div class="garden">&#129419;&#127800;&#127799;&#127804;</div></div>
+    <h2>Glow Garden</h2>
+    <p>A glowing garden that never stops. Butterflies, fireflies, day and night. Tap to plant a flower.</p>
   </a>
 </div>
 <footer>made with plain HTML + JavaScript</footer>
